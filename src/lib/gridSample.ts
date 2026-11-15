@@ -41,3 +41,10 @@ export function sampleGridKm(grid: Uint16Array, meta: GridMeta, lon: number, lat
   if (weightSum === 0) return null;
   return valueSum / weightSum / meta.scale;
 }
+
+/** True if the grid cell containing (lon, lat) is ocean (per the land mask). */
+export function isSeaAt(grid: Uint16Array, meta: GridMeta, lon: number, lat: number): boolean {
+  const x = Math.min(meta.width - 1, Math.max(0, Math.floor((lon - meta.minLon) / meta.cellSizeLon)));
+  const y = Math.min(meta.height - 1, Math.max(0, Math.floor((meta.maxLat - lat) / meta.cellSizeLat)));
+  return grid[y * meta.width + x] === meta.seaSentinel;
+}

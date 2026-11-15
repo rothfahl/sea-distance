@@ -29,10 +29,14 @@ export function DistancePanel({
           <p className="distance">
             <strong>{formatKm(selection.distanceKm)} km</strong> bis zum Meer
           </p>
+          {selection.distanceKm === 0 ? (
+            <p className="hint">Dieser Punkt liegt im Meer.</p>
+          ) : (
           <p className="hint">
             Die rote Linie zeigt alle Orte der Welt, die genauso weit vom Meer entfernt sind wie
             dein Punkt.
           </p>
+          )}
           <p className="coords">
             {selection.lat.toFixed(3)}°, {selection.lon.toFixed(3)}°
           </p>

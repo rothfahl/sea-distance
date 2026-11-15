@@ -26,7 +26,11 @@ type Polygon = { type: "Polygon"; coordinates: number[][][] };
 
 const features = "features" in land ? land.features : [land as any];
 
+// `segments` (exported, used for the live point-to-coast distance index) excludes
+// Antarctica's artificial polar closing edge. `maskSegments` keeps it, because the
+// land/sea rasterization below needs it (see the comment where it's used).
 const segments: number[] = [];
+const maskSegments: number[] = [];
 for (const f of features) {
   const geom = f.geometry as MultiPolygon | Polygon;
   const polygons = geom.type === "MultiPolygon" ? geom.coordinates : [geom.coordinates];
@@ -35,18 +39,19 @@ for (const f of features) {
       for (let i = 0; i < ring.length - 1; i++) {
         const [alon, alat] = ring[i];
         let [blon, blat] = ring[i + 1];
-        // Antarctica's ring is artificially closed with a straight edge along a
-        // latitude circle near the pole (not a real coastline) - skip it, or any
-        // point this close to a pole would measure "distance to coast" against
-        // that fake edge instead of the real, much farther-away coastline.
-        if (Math.abs(alat) > 89 && Math.abs(blat) > 89) continue;
-        // Some rings (Fiji, Chukotka, ...) cross the antimeridian without being
-        // split there. Left as-is, the raw lon difference would be ~360 degrees
-        // instead of the true short distance, turning the segment into a bogus
-        // "coastline" spanning nearly every longitude. Unwrap it onto the short
-        // way around the globe instead.
+        // Some rings (Fiji, Chukotka, Antarctica's polar closing edge, ...) cross
+        // the antimeridian without being split there. Left as-is, the raw lon
+        // difference would be ~360 degrees instead of the true short distance,
+        // turning the segment into a bogus "coastline" spanning nearly every
+        // longitude. Unwrap it onto the short way around the globe instead.
         if (blon - alon > 180) blon -= 360;
         else if (alon - blon > 180) blon += 360;
+        maskSegments.push(alon, alat, blon, blat);
+        // Antarctica's ring is artificially closed with a straight edge along a
+        // latitude circle near the pole (not a real coastline) - exclude it here,
+        // or any point this close to a pole would measure "distance to coast"
+        // against that fake edge instead of the real, much farther-away coastline.
+        if (Math.abs(alat) > 89 && Math.abs(blat) > 89) continue;
         segments.push(alon, alat, blon, blat);
       }
     }
@@ -74,25 +79,65 @@ const CELL_LAT = 180 / HEIGHT;
 const SCALE = 10; // store km * SCALE as Uint16
 const SEA_SENTINEL = 65535; // marks ocean cells (max real distance is ~2800km = 28000 units)
 
-// Rasterize the land polygons onto the grid via an even-odd scanline fill, using
-// the same flat segment list as the coastline index (works for holes too, since
-// even-odd parity across *all* ring edges is independent of ring nesting).
+// Rasterize the land polygons onto the grid via an even-odd scanline fill
+// (works for holes too, since even-odd parity across *all* ring edges is
+// independent of ring nesting). Uses `maskSegments`, which - unlike the
+// exported coastline index - still includes Antarctica's polar closing edge:
+// that edge runs along a line of latitude, so a horizontal (row) scanline
+// can never cross it (no vertical extent) - but a vertical (column) scanline
+// can, since it does have longitude extent. Antarctica's real coastline data
+// stops short of the pole in places, with just this closing edge "sealing"
+// the cap; relying on the row scan alone leaves an incorrect sea band in
+// that gap, which the column scan (OR'd in below) fills in correctly.
 console.log("Rasterizing land mask...");
+const maskFlat = new Float32Array(maskSegments);
+const maskSegmentCount = maskFlat.length / 4;
+
 const crossingsPerRow: number[][] = Array.from({ length: HEIGHT }, () => []);
-for (let s = 0; s < segmentCount; s++) {
+const crossingsPerCol: number[][] = Array.from({ length: WIDTH }, () => []);
+for (let s = 0; s < maskSegmentCount; s++) {
   const o = s * 4;
-  const x1 = flat[o];
-  const y1 = flat[o + 1];
-  const x2 = flat[o + 2];
-  const y2 = flat[o + 3];
-  if (y1 === y2) continue;
-  const ylo = Math.min(y1, y2);
-  const yhi = Math.max(y1, y2);
-  for (let row = 0; row < HEIGHT; row++) {
-    const latRow = 90 - (row + 0.5) * CELL_LAT;
-    if (latRow < ylo || latRow >= yhi) continue;
-    const t = (latRow - y1) / (y2 - y1);
-    crossingsPerRow[row].push(x1 + t * (x2 - x1));
+  const x1 = maskFlat[o];
+  const y1 = maskFlat[o + 1];
+  const x2 = maskFlat[o + 2];
+  const y2 = maskFlat[o + 3];
+  if (y1 !== y2) {
+    const ylo = Math.min(y1, y2);
+    const yhi = Math.max(y1, y2);
+    for (let row = 0; row < HEIGHT; row++) {
+      const latRow = 90 - (row + 0.5) * CELL_LAT;
+      if (latRow < ylo || latRow >= yhi) continue;
+      const t = (latRow - y1) / (y2 - y1);
+      let x = x1 + t * (x2 - x1);
+      // The antimeridian unwrap above can leave x slightly outside
+      // [-180,180). Left as-is, that out-of-range value sorts to the wrong
+      // end of this row's crossing list instead of next to the real
+      // crossings near the seam, corrupting even-odd pairing for the whole
+      // row (manifests as huge spurious land/sea bands right at the
+      // dateline). Normalize back into [-180,180) so sort order matches
+      // true circular longitude order.
+      x = ((x + 180) % 360 + 360) % 360 - 180;
+      crossingsPerRow[row].push(x);
+    }
+  }
+  if (x1 !== x2) {
+    const xlo = Math.min(x1, x2);
+    const xhi = Math.max(x1, x2);
+    for (let col = 0; col < WIDTH; col++) {
+      const lonCol = -180 + (col + 0.5) * CELL_LON;
+      // Same wraparound issue as above: the segment's x-range may sit
+      // slightly outside [-180,180). Test the column's longitude against
+      // the segment's raw range directly, and also its +-360 aliases, so a
+      // column right next to the seam still finds the segment that was
+      // shifted out of range to represent it (otherwise this column gets
+      // an odd crossing count and mispairs with a crossing far away).
+      let lc = lonCol;
+      if (lc < xlo) lc += 360;
+      else if (lc >= xhi) lc -= 360;
+      if (lc < xlo || lc >= xhi) continue;
+      const t = (lc - x1) / (x2 - x1);
+      crossingsPerCol[col].push(y1 + t * (y2 - y1));
+    }
   }
 }
 
@@ -103,6 +148,18 @@ for (let row = 0; row < HEIGHT; row++) {
     const colStart = Math.max(0, Math.ceil((xs[i] - -180) / CELL_LON - 0.5));
     const colEnd = Math.min(WIDTH - 1, Math.floor((xs[i + 1] - -180) / CELL_LON - 0.5));
     for (let col = colStart; col <= colEnd; col++) {
+      landMask[row * WIDTH + col] = 1;
+    }
+  }
+}
+for (let col = 0; col < WIDTH; col++) {
+  const ys = crossingsPerCol[col].sort((a, b) => a - b);
+  for (let i = 0; i + 1 < ys.length; i += 2) {
+    // Latitude decreases as row increases, so the smaller-latitude crossing
+    // (ys[i]) is the larger row index (further from the north pole).
+    const rowStart = Math.max(0, Math.ceil((90 - ys[i + 1]) / CELL_LAT - 0.5));
+    const rowEnd = Math.min(HEIGHT - 1, Math.floor((90 - ys[i]) / CELL_LAT - 0.5));
+    for (let row = rowStart; row <= rowEnd; row++) {
       landMask[row * WIDTH + col] = 1;
     }
   }

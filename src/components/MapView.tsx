@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { useCoastIndex } from "../lib/useCoastIndex";
 import { useDistanceGrid } from "../lib/useDistanceGrid";
 import { buildDistanceContour } from "../lib/contour";
-import { sampleGridKm } from "../lib/gridSample";
+import { sampleGridKm, isSeaAt } from "../lib/gridSample";
 import { ClickCatcher } from "./ClickCatcher";
 import { emojiIcon } from "./emojiIcon";
 import { DistancePanel } from "./DistancePanel";
@@ -13,8 +13,8 @@ interface Selection {
   lat: number;
   lon: number;
   distanceKm: number;
-  coastLat: number;
-  coastLon: number;
+  coastLat: number | null;
+  coastLon: number | null;
 }
 
 const youIcon = emojiIcon("📍");
@@ -28,7 +28,11 @@ export function MapView() {
   const ready = coastIndex !== null && distanceGrid !== null;
 
   function handleClick(lat: number, lon: number) {
-    if (!coastIndex) return;
+    if (!coastIndex || !distanceGrid) return;
+    if (isSeaAt(distanceGrid.grid, distanceGrid.meta, lon, lat)) {
+      setSelection({ lat, lon, distanceKm: 0, coastLat: null, coastLon: null });
+      return;
+    }
     const hit = coastIndex.nearest(lon, lat);
     setSelection({
       lat,
@@ -42,7 +46,7 @@ export function MapView() {
   // Keep the connecting line short on screen even if the nearest coast point
   // lies across the antimeridian from the selected point.
   const polylineCoastLon = useMemo(() => {
-    if (!selection) return 0;
+    if (!selection || selection.coastLon === null) return 0;
     let lon = selection.coastLon;
     if (lon - selection.lon > 180) lon -= 360;
     else if (selection.lon - lon > 180) lon += 360;
@@ -55,7 +59,7 @@ export function MapView() {
   // through the clicked point instead of through wherever the nearest, coarser
   // grid cell happens to sit.
   const contourThresholdKm = useMemo(() => {
-    if (!selection || !distanceGrid) return null;
+    if (!selection || !distanceGrid || selection.distanceKm === 0) return null;
     const sampled = sampleGridKm(distanceGrid.grid, distanceGrid.meta, selection.lon, selection.lat);
     return sampled ?? selection.distanceKm;
   }, [selection, distanceGrid]);
@@ -96,14 +100,18 @@ export function MapView() {
         {selection && (
           <>
             <Marker position={[selection.lat, selection.lon]} icon={youIcon} />
-            <Marker position={[selection.coastLat, selection.coastLon]} icon={coastIcon} />
-            <Polyline
-              positions={[
-                [selection.lat, selection.lon],
-                [selection.coastLat, polylineCoastLon],
-              ]}
-              pathOptions={{ color: "#1565c0", weight: 2, dashArray: "6 6" }}
-            />
+            {selection.coastLat !== null && (
+              <>
+                <Marker position={[selection.coastLat, selection.coastLon!]} icon={coastIcon} />
+                <Polyline
+                  positions={[
+                    [selection.lat, selection.lon],
+                    [selection.coastLat, polylineCoastLon],
+                  ]}
+                  pathOptions={{ color: "#1565c0", weight: 2, dashArray: "6 6" }}
+                />
+              </>
+            )}
           </>
         )}
       </MapContainer>
