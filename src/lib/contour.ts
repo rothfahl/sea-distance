@@ -18,8 +18,15 @@ export function buildDistanceContour(
 ): ContourGeoJSON {
   const scaledThreshold = thresholdKm * meta.scale;
 
+  // Sea cells are masked to a value that can never reach a (positive) threshold,
+  // so the traced contour only runs across land.
+  const land = new Float64Array(grid.length);
+  for (let i = 0; i < grid.length; i++) {
+    land[i] = grid[i] === meta.seaSentinel ? -1 : grid[i];
+  }
+
   const gen = contours().size([meta.width, meta.height]).thresholds([scaledThreshold]);
-  const [polygon] = gen(grid as unknown as number[]);
+  const [polygon] = gen(land as unknown as number[]);
 
   // Grid sample (x, y) represents the cell center at
   // lon = minLon + (x + 0.5) * cellSizeLon, lat = maxLat - (y + 0.5) * cellSizeLat.

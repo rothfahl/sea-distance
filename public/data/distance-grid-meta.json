@@ -7,5 +7,6 @@
   "maxLat": 90,
   "cellSizeLon": 0.5,
   "cellSizeLat": 0.5,
-  "scale": 10
+  "scale": 10,
+  "seaSentinel": 65535
 }

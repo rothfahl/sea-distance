@@ -10,6 +10,7 @@ export interface GridMeta {
   cellSizeLon: number;
   cellSizeLat: number;
   scale: number;
+  seaSentinel: number;
 }
 
 export interface DistanceGrid {

@@ -60,25 +60,69 @@ const HEIGHT = 360;
 const CELL_LON = 360 / WIDTH;
 const CELL_LAT = 180 / HEIGHT;
 const SCALE = 10; // store km * SCALE as Uint16
+const SEA_SENTINEL = 65535; // marks ocean cells (max real distance is ~2800km = 28000 units)
+
+// Rasterize the land polygons onto the grid via an even-odd scanline fill, using
+// the same flat segment list as the coastline index (works for holes too, since
+// even-odd parity across *all* ring edges is independent of ring nesting).
+console.log("Rasterizing land mask...");
+const crossingsPerRow: number[][] = Array.from({ length: HEIGHT }, () => []);
+for (let s = 0; s < segmentCount; s++) {
+  const o = s * 4;
+  const x1 = flat[o];
+  const y1 = flat[o + 1];
+  const x2 = flat[o + 2];
+  const y2 = flat[o + 3];
+  if (y1 === y2) continue;
+  const ylo = Math.min(y1, y2);
+  const yhi = Math.max(y1, y2);
+  for (let row = 0; row < HEIGHT; row++) {
+    const latRow = 90 - (row + 0.5) * CELL_LAT;
+    if (latRow < ylo || latRow >= yhi) continue;
+    const t = (latRow - y1) / (y2 - y1);
+    crossingsPerRow[row].push(x1 + t * (x2 - x1));
+  }
+}
+
+const landMask = new Uint8Array(WIDTH * HEIGHT);
+for (let row = 0; row < HEIGHT; row++) {
+  const xs = crossingsPerRow[row].sort((a, b) => a - b);
+  for (let i = 0; i + 1 < xs.length; i += 2) {
+    const colStart = Math.max(0, Math.ceil((xs[i] - -180) / CELL_LON - 0.5));
+    const colEnd = Math.min(WIDTH - 1, Math.floor((xs[i + 1] - -180) / CELL_LON - 0.5));
+    for (let col = colStart; col <= colEnd; col++) {
+      landMask[row * WIDTH + col] = 1;
+    }
+  }
+}
 
 const grid = new Uint16Array(WIDTH * HEIGHT);
 
-console.log(`Computing ${WIDTH}x${HEIGHT} distance grid...`);
+console.log(`Computing ${WIDTH}x${HEIGHT} distance grid (land cells only)...`);
 const start = Date.now();
+let landCells = 0;
 for (let y = 0; y < HEIGHT; y++) {
   const lat = 90 - (y + 0.5) * CELL_LAT;
   for (let x = 0; x < WIDTH; x++) {
+    const idx = y * WIDTH + x;
+    if (!landMask[idx]) {
+      grid[idx] = SEA_SENTINEL;
+      continue;
+    }
+    landCells++;
     const lon = -180 + (x + 0.5) * CELL_LON;
     const hit = index.nearest(lon, lat);
     const scaled = Math.round(hit.distanceKm * SCALE);
-    grid[y * WIDTH + x] = Math.min(65535, scaled);
+    grid[idx] = Math.min(SEA_SENTINEL - 1, scaled);
   }
   if (y % 30 === 0) {
     const elapsed = ((Date.now() - start) / 1000).toFixed(1);
     console.log(`  row ${y}/${HEIGHT} (${elapsed}s elapsed)`);
   }
 }
-console.log(`Grid done in ${((Date.now() - start) / 1000).toFixed(1)}s`);
+console.log(
+  `Grid done in ${((Date.now() - start) / 1000).toFixed(1)}s (${landCells} land cells of ${WIDTH * HEIGHT})`,
+);
 
 writeFileSync(join(outDir, "distance-grid.bin"), Buffer.from(grid.buffer));
 writeFileSync(
@@ -94,6 +138,7 @@ writeFileSync(
       cellSizeLon: CELL_LON,
       cellSizeLat: CELL_LAT,
       scale: SCALE,
+      seaSentinel: SEA_SENTINEL,
     },
     null,
     2,
