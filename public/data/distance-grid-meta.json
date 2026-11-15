@@ -1,0 +1,11 @@
+{
+  "width": 720,
+  "height": 360,
+  "minLon": -180,
+  "maxLon": 180,
+  "minLat": -90,
+  "maxLat": 90,
+  "cellSizeLon": 0.5,
+  "cellSizeLat": 0.5,
+  "scale": 10
+}

@@ -1,0 +1,58 @@
+.map-wrap {
+  position: fixed;
+  inset: 0;
+}
+
+.leaflet-container-full {
+  width: 100%;
+  height: 100%;
+  background: #aadaff;
+}
+
+.emoji-marker-wrapper {
+  background: transparent;
+  border: none;
+}
+
+.emoji-marker {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+  text-align: center;
+}
+
+.panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 1000;
+  max-width: 340px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-family: system-ui, sans-serif;
+}
+
+.panel h1 {
+  font-size: 1.1rem;
+  margin: 0 0 8px;
+}
+
+.panel p {
+  margin: 6px 0;
+  font-size: 0.92rem;
+  color: #333;
+}
+
+.panel .distance {
+  font-size: 1.3rem;
+  color: #1565c0;
+}
+
+.panel .hint {
+  color: #c62828;
+}
+
+.panel .coords {
+  color: #888;
+  font-size: 0.8rem;
+}
