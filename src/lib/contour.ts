@@ -18,12 +18,11 @@ export function buildDistanceContour(
 ): ContourGeoJSON {
   const scaledThreshold = thresholdKm * meta.scale;
 
-  // Sea cells are masked to a value that can never reach a (positive) threshold,
-  // so the traced contour only runs across land.
-  const land = new Float64Array(grid.length);
-  for (let i = 0; i < grid.length; i++) {
-    land[i] = grid[i] === meta.seaSentinel ? -1 : grid[i];
-  }
+  // Sea cells are stored as the sentinel 65535. Reinterpreting the same bytes as
+  // signed 16-bit turns that into -1, which can never reach a (positive)
+  // threshold - masking sea out of the contour with a zero-copy typed array
+  // view instead of allocating and filling a whole new grid-sized array.
+  const land = new Int16Array(grid.buffer, grid.byteOffset, grid.length);
 
   const gen = contours().size([meta.width, meta.height]).thresholds([scaledThreshold]);
   const [polygon] = gen(land as unknown as number[]);

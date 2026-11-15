@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { useCoastIndex } from "../lib/useCoastIndex";
 import { useDistanceGrid } from "../lib/useDistanceGrid";
 import { buildDistanceContour } from "../lib/contour";
+import { sampleGridKm } from "../lib/gridSample";
 import { ClickCatcher } from "./ClickCatcher";
 import { emojiIcon } from "./emojiIcon";
 import { DistancePanel } from "./DistancePanel";
@@ -48,10 +49,21 @@ export function MapView() {
     return lon;
   }, [selection]);
 
-  const contour = useMemo(() => {
+  // Use the grid's own (interpolated) value at the clicked point as the contour
+  // threshold, not the independently-computed exact distance: since the contour
+  // is traced from this same grid, that's what makes the isoline pass exactly
+  // through the clicked point instead of through wherever the nearest, coarser
+  // grid cell happens to sit.
+  const contourThresholdKm = useMemo(() => {
     if (!selection || !distanceGrid) return null;
-    return buildDistanceContour(distanceGrid.grid, distanceGrid.meta, selection.distanceKm);
+    const sampled = sampleGridKm(distanceGrid.grid, distanceGrid.meta, selection.lon, selection.lat);
+    return sampled ?? selection.distanceKm;
   }, [selection, distanceGrid]);
+
+  const contour = useMemo(() => {
+    if (contourThresholdKm === null || !distanceGrid) return null;
+    return buildDistanceContour(distanceGrid.grid, distanceGrid.meta, contourThresholdKm);
+  }, [contourThresholdKm, distanceGrid]);
 
   return (
     <div className="map-wrap">
@@ -70,7 +82,7 @@ export function MapView() {
 
         {contour && (
           <GeoJSON
-            key={`contour-${selection!.distanceKm.toFixed(2)}`}
+            key={`contour-${contourThresholdKm!.toFixed(3)}`}
             data={contour as any}
             style={() => ({
               color: "#ff5252",

@@ -67,8 +67,8 @@ console.log("Wrote coastline-segments.bin");
 console.log("Building spatial index for grid precomputation...");
 const index = new CoastIndex(flat);
 
-const WIDTH = 720;
-const HEIGHT = 360;
+const WIDTH = 3600;
+const HEIGHT = 1800;
 const CELL_LON = 360 / WIDTH;
 const CELL_LAT = 180 / HEIGHT;
 const SCALE = 10; // store km * SCALE as Uint16

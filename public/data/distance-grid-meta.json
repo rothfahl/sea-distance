@@ -1,12 +1,12 @@
 {
-  "width": 720,
-  "height": 360,
+  "width": 3600,
+  "height": 1800,
   "minLon": -180,
   "maxLon": 180,
   "minLat": -90,
   "maxLat": 90,
-  "cellSizeLon": 0.5,
-  "cellSizeLat": 0.5,
+  "cellSizeLon": 0.1,
+  "cellSizeLat": 0.1,
   "scale": 10,
   "seaSentinel": 65535
 }
