@@ -34,7 +34,19 @@ for (const f of features) {
     for (const ring of polygon) {
       for (let i = 0; i < ring.length - 1; i++) {
         const [alon, alat] = ring[i];
-        const [blon, blat] = ring[i + 1];
+        let [blon, blat] = ring[i + 1];
+        // Antarctica's ring is artificially closed with a straight edge along a
+        // latitude circle near the pole (not a real coastline) - skip it, or any
+        // point this close to a pole would measure "distance to coast" against
+        // that fake edge instead of the real, much farther-away coastline.
+        if (Math.abs(alat) > 89 && Math.abs(blat) > 89) continue;
+        // Some rings (Fiji, Chukotka, ...) cross the antimeridian without being
+        // split there. Left as-is, the raw lon difference would be ~360 degrees
+        // instead of the true short distance, turning the segment into a bogus
+        // "coastline" spanning nearly every longitude. Unwrap it onto the short
+        // way around the globe instead.
+        if (blon - alon > 180) blon -= 360;
+        else if (alon - blon > 180) blon += 360;
         segments.push(alon, alat, blon, blat);
       }
     }
