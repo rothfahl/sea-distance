@@ -19,22 +19,22 @@ export function DistancePanel({
 }) {
   return (
     <div className="panel">
-      <h1>🌊 Gleich weit weg vom Meer</h1>
-      {!ready && <p>Lade Küstendaten…</p>}
+      <h1>🌊 How far from the sea?</h1>
+      {!ready && <p>Loading coastline data…</p>}
       {ready && !selection && (
-        <p>Klicke auf einen Punkt der Karte. Du erfährst, wie weit er Luftlinie vom Meer entfernt ist.</p>
+        <p>Click a point on the map to see how far it is from the sea as the crow flies.</p>
       )}
       {ready && selection && (
         <>
           <p className="distance">
-            <strong>{formatKm(selection.distanceKm)} km</strong> bis zum Meer
+            <strong>{formatKm(selection.distanceKm)} km</strong> to the sea
           </p>
           {selection.distanceKm === 0 ? (
-            <p className="hint">Dieser Punkt liegt im Meer.</p>
+            <p className="hint">This point is in the sea.</p>
           ) : (
           <p className="hint">
-            Die rote Linie zeigt alle Orte der Welt, die genauso weit vom Meer entfernt sind wie
-            dein Punkt.
+            The red line shows all places in the world that are exactly as far from the sea as
+            your point.
           </p>
           )}
           <p className="coords">
