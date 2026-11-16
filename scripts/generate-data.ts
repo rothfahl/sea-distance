@@ -16,47 +16,58 @@ const root = join(__dirname, "..");
 const outDir = join(root, "public", "data");
 mkdirSync(outDir, { recursive: true });
 
-console.log("Loading world-atlas land-50m topology...");
-const topoPath = join(root, "node_modules", "world-atlas", "land-50m.json");
-const topology = JSON.parse(readFileSync(topoPath, "utf-8"));
-const land = feature(topology, topology.objects.land) as any;
-
 type MultiPolygon = { type: "MultiPolygon"; coordinates: number[][][][] };
 type Polygon = { type: "Polygon"; coordinates: number[][][] };
 
-const features = "features" in land ? land.features : [land as any];
+/**
+ * Extracts coastline edges from a world-atlas land topology.
+ * Returns two flat [alon,alat,blon,blat, ...] arrays:
+ *  - `segments`: excludes Antarctica's artificial polar closing edge, for
+ *    live point-to-coast distance queries (that fake edge would otherwise be
+ *    measured as "the coast" for any point near a pole).
+ *  - `maskSegments`: keeps that edge, since land/sea rasterization needs it
+ *    (see the comment where it's used, below).
+ */
+function extractSegments(topoPath: string): { segments: number[]; maskSegments: number[] } {
+  const topology = JSON.parse(readFileSync(topoPath, "utf-8"));
+  const land = feature(topology, topology.objects.land) as any;
+  const features = "features" in land ? land.features : [land as any];
 
-// `segments` (exported, used for the live point-to-coast distance index) excludes
-// Antarctica's artificial polar closing edge. `maskSegments` keeps it, because the
-// land/sea rasterization below needs it (see the comment where it's used).
-const segments: number[] = [];
-const maskSegments: number[] = [];
-for (const f of features) {
-  const geom = f.geometry as MultiPolygon | Polygon;
-  const polygons = geom.type === "MultiPolygon" ? geom.coordinates : [geom.coordinates];
-  for (const polygon of polygons) {
-    for (const ring of polygon) {
-      for (let i = 0; i < ring.length - 1; i++) {
-        const [alon, alat] = ring[i];
-        let [blon, blat] = ring[i + 1];
-        // Some rings (Fiji, Chukotka, Antarctica's polar closing edge, ...) cross
-        // the antimeridian without being split there. Left as-is, the raw lon
-        // difference would be ~360 degrees instead of the true short distance,
-        // turning the segment into a bogus "coastline" spanning nearly every
-        // longitude. Unwrap it onto the short way around the globe instead.
-        if (blon - alon > 180) blon -= 360;
-        else if (alon - blon > 180) blon += 360;
-        maskSegments.push(alon, alat, blon, blat);
-        // Antarctica's ring is artificially closed with a straight edge along a
-        // latitude circle near the pole (not a real coastline) - exclude it here,
-        // or any point this close to a pole would measure "distance to coast"
-        // against that fake edge instead of the real, much farther-away coastline.
-        if (Math.abs(alat) > 89 && Math.abs(blat) > 89) continue;
-        segments.push(alon, alat, blon, blat);
+  const segments: number[] = [];
+  const maskSegments: number[] = [];
+  for (const f of features) {
+    const geom = f.geometry as MultiPolygon | Polygon;
+    const polygons = geom.type === "MultiPolygon" ? geom.coordinates : [geom.coordinates];
+    for (const polygon of polygons) {
+      for (const ring of polygon) {
+        for (let i = 0; i < ring.length - 1; i++) {
+          const [alon, alat] = ring[i];
+          let [blon, blat] = ring[i + 1];
+          // Some rings (Fiji, Chukotka, Antarctica's polar closing edge, ...) cross
+          // the antimeridian without being split there. Left as-is, the raw lon
+          // difference would be ~360 degrees instead of the true short distance,
+          // turning the segment into a bogus "coastline" spanning nearly every
+          // longitude. Unwrap it onto the short way around the globe instead.
+          if (blon - alon > 180) blon -= 360;
+          else if (alon - blon > 180) blon += 360;
+          maskSegments.push(alon, alat, blon, blat);
+          // Antarctica's ring is artificially closed with a straight edge along a
+          // latitude circle near the pole (not a real coastline) - exclude it here,
+          // or any point this close to a pole would measure "distance to coast"
+          // against that fake edge instead of the real, much farther-away coastline.
+          if (Math.abs(alat) > 89 && Math.abs(blat) > 89) continue;
+          segments.push(alon, alat, blon, blat);
+        }
       }
     }
   }
+  return { segments, maskSegments };
 }
+
+console.log("Loading world-atlas land-50m topology...");
+const { segments, maskSegments } = extractSegments(
+  join(root, "node_modules", "world-atlas", "land-50m.json"),
+);
 
 const segmentCount = segments.length / 4;
 console.log(`Extracted ${segmentCount} coastline segments.`);
@@ -68,6 +79,27 @@ writeFileSync(
   JSON.stringify({ segmentCount }, null, 2),
 );
 console.log("Wrote coastline-segments.bin");
+
+// A separate, much higher-resolution (1:10M vs. 1:50M) coastline export used
+// only by the client, for the per-click exact distance and the local
+// high-resolution isoline refinement (see src/lib/localContour.ts) - small
+// islands and harbor towns need far more detail than the 50m data has to be
+// placed precisely. The global distance-grid above still only needs the 50m
+// data: it's precomputed once at 0.1deg resolution, well coarser than either
+// coastline's own detail.
+console.log("Loading world-atlas land-10m topology for the fine client-side index...");
+const { segments: fineSegments } = extractSegments(
+  join(root, "node_modules", "world-atlas", "land-10m.json"),
+);
+const fineSegmentCount = fineSegments.length / 4;
+console.log(`Extracted ${fineSegmentCount} fine coastline segments.`);
+const fineFlat = new Float32Array(fineSegments);
+writeFileSync(join(outDir, "coastline-segments-fine.bin"), Buffer.from(fineFlat.buffer));
+writeFileSync(
+  join(outDir, "coastline-meta-fine.json"),
+  JSON.stringify({ segmentCount: fineSegmentCount }, null, 2),
+);
+console.log("Wrote coastline-segments-fine.bin");
 
 console.log("Building spatial index for grid precomputation...");
 const index = new CoastIndex(flat);

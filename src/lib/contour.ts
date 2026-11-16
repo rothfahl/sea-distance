@@ -41,3 +41,29 @@ export function buildDistanceContour(
 
   return { type: "MultiPolygon", coordinates };
 }
+
+/**
+ * Returns a copy of the grid with the given lon/lat box forced to the sea
+ * sentinel, so the global contour doesn't also draw its (coarser, possibly
+ * wrong) version of an area covered by a local high-resolution refinement.
+ */
+export function maskGridBox(
+  grid: Uint16Array,
+  meta: GridMeta,
+  minLon: number,
+  maxLon: number,
+  minLat: number,
+  maxLat: number,
+): Uint16Array {
+  const masked = grid.slice();
+  const colStart = Math.max(0, Math.floor((minLon - meta.minLon) / meta.cellSizeLon));
+  const colEnd = Math.min(meta.width - 1, Math.ceil((maxLon - meta.minLon) / meta.cellSizeLon));
+  const rowStart = Math.max(0, Math.floor((meta.maxLat - maxLat) / meta.cellSizeLat));
+  const rowEnd = Math.min(meta.height - 1, Math.ceil((meta.maxLat - minLat) / meta.cellSizeLat));
+  for (let row = rowStart; row <= rowEnd; row++) {
+    for (let col = colStart; col <= colEnd; col++) {
+      masked[row * meta.width + col] = meta.seaSentinel;
+    }
+  }
+  return masked;
+}

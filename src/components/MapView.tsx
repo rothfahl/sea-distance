@@ -3,7 +3,8 @@ import { MapContainer, TileLayer, Marker, Polyline, GeoJSON } from "react-leafle
 import "leaflet/dist/leaflet.css";
 import { useCoastIndex } from "../lib/useCoastIndex";
 import { useDistanceGrid } from "../lib/useDistanceGrid";
-import { buildDistanceContour } from "../lib/contour";
+import { buildDistanceContour, maskGridBox } from "../lib/contour";
+import { buildLocalContour } from "../lib/localContour";
 import { sampleGridKm, isSeaAt } from "../lib/gridSample";
 import { ClickCatcher } from "./ClickCatcher";
 import { emojiIcon } from "./emojiIcon";
@@ -64,10 +65,32 @@ export function MapView() {
     return sampled ?? selection.distanceKm;
   }, [selection, distanceGrid]);
 
+  // Rebuild a small, exact high-resolution patch of the isoline around the
+  // clicked point - the global grid's 0.1deg cells are too coarse for small
+  // islands and narrow coastlines, where it can trace a blocky or even
+  // disconnected line. Falls back to null (just the coarse global contour)
+  // when there's no nearby coastline to refine against.
+  const localContour = useMemo(() => {
+    if (!selection || !coastIndex || contourThresholdKm === null || selection.distanceKm === 0) {
+      return null;
+    }
+    return buildLocalContour(coastIndex, selection.lon, selection.lat, contourThresholdKm);
+  }, [selection, coastIndex, contourThresholdKm]);
+
   const contour = useMemo(() => {
     if (contourThresholdKm === null || !distanceGrid) return null;
-    return buildDistanceContour(distanceGrid.grid, distanceGrid.meta, contourThresholdKm);
-  }, [contourThresholdKm, distanceGrid]);
+    const grid = localContour
+      ? maskGridBox(
+          distanceGrid.grid,
+          distanceGrid.meta,
+          localContour.minLon,
+          localContour.maxLon,
+          localContour.minLat,
+          localContour.maxLat,
+        )
+      : distanceGrid.grid;
+    return buildDistanceContour(grid, distanceGrid.meta, contourThresholdKm);
+  }, [contourThresholdKm, distanceGrid, localContour]);
 
   return (
     <div className="map-wrap">
@@ -88,6 +111,19 @@ export function MapView() {
           <GeoJSON
             key={`contour-${contourThresholdKm!.toFixed(3)}`}
             data={contour as any}
+            style={() => ({
+              color: "#ff5252",
+              weight: 2.5,
+              opacity: 0.9,
+              fill: false,
+            })}
+          />
+        )}
+
+        {localContour && (
+          <GeoJSON
+            key={`local-contour-${contourThresholdKm!.toFixed(3)}-${selection!.lon}-${selection!.lat}`}
+            data={localContour.geojson as any}
             style={() => ({
               color: "#ff5252",
               weight: 2.5,

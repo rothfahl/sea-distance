@@ -73,6 +73,23 @@ export class CoastIndex {
     return best;
   }
 
+  /**
+   * Returns every indexed segment overlapping the given lon/lat box, handling
+   * antimeridian wraparound the same way `nearest` does. Used to grab a
+   * small, reusable candidate set for local high-resolution work (see
+   * localContour.ts) instead of re-querying the tree per grid point.
+   */
+  candidatesInBox(minLon: number, minLat: number, maxLon: number, maxLat: number): SegmentItem[] {
+    const results: SegmentItem[] = [];
+    for (const shift of [-360, 0, 360]) {
+      const sMinX = minLon + shift;
+      const sMaxX = maxLon + shift;
+      if (sMaxX < -185 || sMinX > 185) continue;
+      results.push(...this.tree.search({ minX: sMinX, minY: minLat, maxX: sMaxX, maxY: maxLat }));
+    }
+    return results;
+  }
+
   private searchWrapped(lon: number, lat: number, radiusDeg: number): SegmentItem[] {
     const minY = Math.max(-90, lat - radiusDeg);
     const maxY = Math.min(90, lat + radiusDeg);

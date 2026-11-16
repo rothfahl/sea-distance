@@ -7,7 +7,7 @@ export function useCoastIndex(): CoastIndex | null {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const buf = await fetch("/data/coastline-segments.bin").then((r) => r.arrayBuffer());
+      const buf = await fetch("/data/coastline-segments-fine.bin").then((r) => r.arrayBuffer());
       if (cancelled) return;
       setIndex(new CoastIndex(new Float32Array(buf)));
     })();
