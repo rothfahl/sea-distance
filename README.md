@@ -1,3 +1,25 @@
+# Sea Distance
+
+## Running locally
+
+Requires Node.js and npm.
+
+```bash
+npm install
+npm run dev
+```
+
+Then open the URL printed in the terminal (by default http://localhost:5173).
+
+Other scripts:
+
+- `npm run build` – type-check and create a production build in `dist/`
+- `npm run preview` – serve the production build locally
+- `npm run lint` – run Oxlint
+- `npm run gen-data` – regenerate the data files (`scripts/generate-data.ts`)
+
+---
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
